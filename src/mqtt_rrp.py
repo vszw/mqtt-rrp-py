@@ -46,6 +46,7 @@ class MQTTRequestResponseProtocol(EventEmitter):
             None
         """
         self.topics = topics
+        self.topics.append((self.identifier, 0))
         self.client.on_connect = self.__on_connect
         self.client.on_message = self.__on_message
     
