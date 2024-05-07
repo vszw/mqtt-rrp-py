@@ -18,6 +18,7 @@ class MQTTRequestResponseProtocol(EventEmitter):
     topics: List[tuple[str, int]] = []
     initialized: bool = False
     request_timeout: int = 3
+    listeners: dict[str, list[asyncio.FutureCallback[TPayload]]] = {}
     
     def __init__(self, client: Client, identifier: str):
         """
@@ -94,7 +95,7 @@ class MQTTRequestResponseProtocol(EventEmitter):
         """
         return json.dumps(TPayload(ts=int(time.time() * 1000), data=data, from_topic=self.identifier, request_id=request_id, callback_id=callback_id)).encode()
     
-    def __on_connect(self, client, userdata, flags, rc):
+    async def __on_connect(self, client, userdata, flags, rc):
         """
         A callback function that is called when the client successfully connects to the MQTT broker.
 
@@ -110,11 +111,11 @@ class MQTTRequestResponseProtocol(EventEmitter):
         if rc == 0:
             self.initialized = True
             self.emit('connected')
-            self.client.subscribe(self.topics)
+            await self.client.subscribe(self.topics)
         else:
             self.emit('error', rc)
     
-    def __on_message(self, client, userdata, msg: MQTTMessage):
+    async def __on_message(self, client, userdata, msg: MQTTMessage):
         """
         A callback function that is called when a message is received by the MQTT client.
 
@@ -137,7 +138,7 @@ class MQTTRequestResponseProtocol(EventEmitter):
         
         self.emit('message', payload)
     
-    def send(self, topic: str, data: Any, callback_id: str | None = None):
+    async def send(self, topic: str, data: Any, callback_id: str | None = None):
         """
         Sends a message to the specified topic using the MQTT client.
 
@@ -150,9 +151,9 @@ class MQTTRequestResponseProtocol(EventEmitter):
             None
         """
         payload = self.__serialize(data, callback_id=callback_id)
-        self.client.publish(topic, payload)
+        await self.client.publish(topic, payload)
     
-    def request(self, topic: str, data: Any, return_full: bool = False) -> Awaitable[TPayload | Any]:
+    async def request(self, topic: str, data: Any, return_full: bool = False) -> Awaitable[TPayload | Any]:
         """
         Sends a request to the specified MQTT topic with the given data.
 
@@ -168,12 +169,23 @@ class MQTTRequestResponseProtocol(EventEmitter):
         request_id = str(uuid.uuid4())
         payload = self.__serialize(data, request_id=request_id)
         
-        self.client.publish(topic, payload)
+        await self.client.publish(topic, payload)
         future: asyncio.Future[TPayload] = asyncio.Future()
         
-        def future_wrapper(payload: TPayload):
+        def callback(payload):
             future.set_result(payload)
-            self.listeners[request_id].remove(future_wrapper)
+            self.listeners[request_id].remove(callback)
+            if not self.listeners[request_id]:
+                del self.listeners[request_id]
         
-        self.listeners[request_id].append(lambda payload: future_wrapper(payload))
+        self.listeners[request_id] = self.listeners.get(request_id, [])
+        self.listeners[request_id].append(callback)
+        
+        def timeout_wrapper():
+            self.listeners[request_id].remove(timeout_wrapper)
+            future.set_exception(asyncio.TimeoutError)
+        
+        loop = asyncio.get_event_loop()
+        loop.call_later(self.request_timeout, timeout_wrapper)
+        
         return future if return_full else future.then(lambda p: p.data)
