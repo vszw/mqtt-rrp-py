@@ -1,6 +1,6 @@
 from typing import Any, List
 from event_emitter import EventEmitter
-import paho.mqtt.client as mqtt 
+from paho.mqtt.client import MQTTMessage, Client
 
 
 class TPayload:
@@ -12,13 +12,13 @@ class TPayload:
 
 
 class MQTTRequestResponseProtocol(EventEmitter):
-    client: mqtt.Client
+    client: Client
     identifier: str
     topics: List[tuple[str, int]] = []
     initialized: bool = False
     request_timeout: int = 3
     
-    def __init__(self, client: mqtt.Client, identifier: str):
+    def __init__(self, client: Client, identifier: str):
         super().__init__()
         self.client = client
         self.identifier = identifier
@@ -42,5 +42,5 @@ class MQTTRequestResponseProtocol(EventEmitter):
         else:
             self.emit('error', rc)
     
-    def __on_message(self, client, userdata, msg):
+    def __on_message(self, client, userdata, msg: MQTTMessage):
         pass
