@@ -1,5 +1,5 @@
 import json, asyncio, uuid
-from typing import Any, List
+from typing import Any, List, Awaitable
 from event_emitter import EventEmitter
 from paho.mqtt.client import MQTTMessage, Client
 
@@ -65,23 +65,12 @@ class MQTTRequestResponseProtocol(EventEmitter):
         payload = self.__serialize(data, callback_id=callback_id)
         self.client.publish(topic, payload)
     
-    async def request(self, topic: str, data: Any, return_full: bool = False):
+    def request(self, topic: str, data: Any, return_full: bool = False) -> Awaitable[TPayload | Any]:
         request_id = str(uuid.uuid4())
         payload = self.__serialize(data, request_id=request_id)
         
         self.client.publish(topic, payload)
+        future: asyncio.Future[TPayload] = asyncio.Future()
         
-        # wait for response from event emitter or timeout
-        future = asyncio.Future()
-        self.once(request_id, lambda payload: future.set_result(payload))
-        
-        try:
-            payload = await asyncio.wait_for(future, self.request_timeout)
-            payload = self.__deserialize(payload.data)
-        except asyncio.TimeoutError:
-            raise TimeoutError(f'Request timed out. Topic: {topic}, request_id: {request_id}')
-        
-        if return_full:
-            return payload
-        else:
-            return payload.data
+        self.listeners[request_id].append(lambda payload: future.set_result(payload))
+        return future if return_full else future.then(lambda p: p.data)
