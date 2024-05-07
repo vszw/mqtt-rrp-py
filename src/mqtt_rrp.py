@@ -170,5 +170,9 @@ class MQTTRequestResponseProtocol(EventEmitter):
         self.client.publish(topic, payload)
         future: asyncio.Future[TPayload] = asyncio.Future()
         
-        self.listeners[request_id].append(lambda payload: future.set_result(payload))
+        def future_wrapper(payload: TPayload):
+            future.set_result(payload)
+            self.listeners[request_id].remove(future_wrapper)
+        
+        self.listeners[request_id].append(lambda payload: future_wrapper(payload))
         return future if return_full else future.then(lambda p: p.data)
