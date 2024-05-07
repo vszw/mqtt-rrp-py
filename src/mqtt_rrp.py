@@ -1,4 +1,4 @@
-import json, asyncio, uuid
+import json, asyncio, uuid, time
 from typing import Any, List, Awaitable
 from event_emitter import EventEmitter
 from paho.mqtt.client import MQTTMessage, Client
@@ -91,7 +91,7 @@ class MQTTRequestResponseProtocol(EventEmitter):
         Returns:
             bytes: The serialized data.
         """
-        return json.dumps(TPayload(ts=0, data=data, from_topic=self.identifier, request_id=request_id, callback_id=callback_id)).encode()
+        return json.dumps(TPayload(ts=int(time.time() * 1000), data=data, from_topic=self.identifier, request_id=request_id, callback_id=callback_id)).encode()
     
     def __on_connect(self, client, userdata, flags, rc):
         """
